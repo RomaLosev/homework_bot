@@ -5,6 +5,7 @@ import requests
 import os
 import logging
 import time
+from urllib3.exceptions import RequestError
 
 load_dotenv()
 
@@ -13,7 +14,9 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 RETRY_TIME = 600
-ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
+PRACTICUM_ENDPOINT = (
+    'https://practicum.yandex.ru/api/user_api/homework_statuses/'
+)
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
 HOMEWORK_STATUSES = {
@@ -32,53 +35,64 @@ logging.basicConfig(
 
 def send_message(bot, message):
     """Отправляем сообщение."""
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    chat_id = TELEGRAM_CHAT_ID
-    logging.info(f'Message send {message}')
-    return bot.send_message(chat_id, text=message)
+    logging.info(f'Сообщение отправлено {message}')
+    try:
+        return bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+    except ConnectionError:
+        return 'Сервер не отвечает'
 
 
 def get_api_answer(current_timestamp):
     """Берём информацию с сервера."""
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    homework_statuses = requests.get(ENDPOINT, headers=HEADERS, params=params)
+    try:
+        homework_statuses = requests.get(
+            PRACTICUM_ENDPOINT, headers=HEADERS, params=params
+        )
+    except RequestError:
+        return 'Сервер не отвечает'
     if homework_statuses.status_code != HTTPStatus.OK:
-        raise Exception("invalid response")
-    logging.info('server respond')
-    return homework_statuses.json()
+        raise Exception('Неверный запрос')
+    logging.info('Сервер на связи')
+    try:
+        return homework_statuses.json()
+    except ValueError:
+        return 'Неверное значение'
 
 
 def check_response(response):
     """Проверка полученной информации."""
     homeworks = response['homeworks']
+    try:
+        homeworks
+    except KeyError:
+        return 'Такого ключа в словаре нет'
     if homeworks is None:
-        raise Exception("Нет домашней работы")
+        raise Exception('Нет домашней работы')
     if type(homeworks) != list:
-        raise TypeError("Не словарь")
+        raise TypeError('Ответ не является списком')
     return homeworks
 
 
 def parse_status(homework):
     """Достаем статус работы."""
     homework_name = homework.get('homework_name')
-    verdict = HOMEWORK_STATUSES[homework.get('status')]
     if homework_name is None:
-        raise KeyError("No homework name")
+        raise KeyError('Нет такой домашней работы')
+    verdict = HOMEWORK_STATUSES[homework.get('status')]
     if verdict is None:
-        raise Exception("No verdict")
-    logging.info(f'got verdict {verdict}')
+        raise Exception('Вердикт не вынесен')
+    if verdict not in HOMEWORK_STATUSES.values():
+        raise ValueError('Нет такого значения в словаре')
+    logging.info(f'Вердикт: {verdict}')
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
     """Проверяем доступность токенов."""
-    if TELEGRAM_TOKEN or TELEGRAM_CHAT_ID is not None:
-        return True
-    elif PRACTICUM_TOKEN is not None:
-        return True
-    else:
-        return False
+    tokens = [TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, PRACTICUM_TOKEN]
+    return any(tokens)
 
 
 def main():
@@ -93,15 +107,14 @@ def main():
                 for homework in check_response_result:
                     parse_status_result = parse_status(homework)
                     send_message(bot, parse_status_result)
-            time.sleep(RETRY_TIME)
         except Exception as error:
             logging.error('Бот сломался')
             bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
                 text=f'Сбой в работе программы: {error}'
             )
+        finally:
             time.sleep(RETRY_TIME)
-            continue
 
 
 if __name__ == '__main__':
