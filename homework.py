@@ -5,7 +5,6 @@ import requests
 import os
 import logging
 import time
-from urllib3.exceptions import RequestError
 
 load_dotenv()
 
@@ -17,7 +16,7 @@ RETRY_TIME = 600
 PRACTICUM_ENDPOINT = (
     'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 )
-HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
+PRACTICUM_HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
 HOMEWORK_STATUSES = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
@@ -39,7 +38,7 @@ def send_message(bot, message):
     try:
         return bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
     except ConnectionError:
-        return 'Сервер не отвечает'
+        logging.error('Сервер не отвечает')
 
 
 def get_api_answer(current_timestamp):
@@ -48,29 +47,31 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     try:
         homework_statuses = requests.get(
-            PRACTICUM_ENDPOINT, headers=HEADERS, params=params
+            PRACTICUM_ENDPOINT, headers=PRACTICUM_HEADERS, params=params
         )
-    except RequestError:
-        return 'Сервер не отвечает'
+    except requests.RequestException:
+        logging.error('Сервер не отвечает')
     if homework_statuses.status_code != HTTPStatus.OK:
         raise Exception('Неверный запрос')
     logging.info('Сервер на связи')
     try:
         return homework_statuses.json()
     except ValueError:
-        return 'Неверное значение'
+        logging.error('Неверное значение')
+        raise Exception('Неверное значение')
 
 
 def check_response(response):
     """Проверка полученной информации."""
-    homeworks = response['homeworks']
     try:
-        homeworks
+        homeworks = response['homeworks']
     except KeyError:
-        return 'Такого ключа в словаре нет'
+        logging.error('Такого ключа в словаре нет')
+        raise Exception('Такого ключа в словаре нет')
     if homeworks is None:
+        logging.error('Нет домашней работы')
         raise Exception('Нет домашней работы')
-    if type(homeworks) != list:
+    if isinstance(homeworks, dict):
         raise TypeError('Ответ не является списком')
     return homeworks
 
@@ -80,11 +81,13 @@ def parse_status(homework):
     homework_name = homework.get('homework_name')
     if homework_name is None:
         raise KeyError('Нет такой домашней работы')
-    verdict = HOMEWORK_STATUSES[homework.get('status')]
+    try:
+        verdict = HOMEWORK_STATUSES[homework.get('status')]
+    except ValueError:
+        logging.error('Нет такого значения в словаре')
+        raise ValueError('Нет такого значения в словаре')
     if verdict is None:
         raise Exception('Вердикт не вынесен')
-    if verdict not in HOMEWORK_STATUSES.values():
-        raise ValueError('Нет такого значения в словаре')
     logging.info(f'Вердикт: {verdict}')
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -92,7 +95,7 @@ def parse_status(homework):
 def check_tokens():
     """Проверяем доступность токенов."""
     tokens = [TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, PRACTICUM_TOKEN]
-    return any(tokens)
+    return all(tokens)
 
 
 def main():
