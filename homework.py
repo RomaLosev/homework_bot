@@ -68,9 +68,6 @@ def check_response(response):
     except KeyError:
         logging.error('Такого ключа в словаре нет')
         raise Exception('Такого ключа в словаре нет')
-    if homeworks is None:
-        logging.error('Нет домашней работы')
-        raise Exception('Нет домашней работы')
     if isinstance(homeworks, dict):
         raise TypeError('Ответ не является списком')
     return homeworks
@@ -83,9 +80,9 @@ def parse_status(homework):
         raise KeyError('Нет такой домашней работы')
     try:
         verdict = HOMEWORK_STATUSES[homework.get('status')]
-    except ValueError:
+    except KeyError:
         logging.error('Нет такого значения в словаре')
-        raise ValueError('Нет такого значения в словаре')
+        raise KeyError('Нет такого значения в словаре')
     if verdict is None:
         raise Exception('Вердикт не вынесен')
     logging.info(f'Вердикт: {verdict}')
