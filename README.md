@@ -27,9 +27,9 @@ git clone https://github.com/leks20/telegram-api-bot
 2.  В созданной директории установите виртуальное окружение, активируйте его и установите необходимые зависимости:
 
 ```
-python3 -m venv venv
+python -m venv venv
 
-. venv/bin/activate
+source venv/scripts/activate
 
 pip install -r requirements.txt
 
